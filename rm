@@ -63,6 +63,56 @@ success_msg() {
     echo -e "${GREEN}$1${NC}"
 }
 
+# 正規化路徑函式
+# Normalize path function
+normalize_path() {
+    local path="$1"
+    # 移除多餘的斜線
+    # Remove multiple slashes
+    path=$(echo "$path" | sed 's#/\+#/#g')
+    
+    # 處理 ./ 和 ../
+    # Handle ./ and ../
+    local IFS='/'
+    local parts=()
+    local part
+    
+    for part in $path; do
+        if [ "$part" = ".." ]; then
+            # 移除上一個元素（如果存在）
+            if [ ${#parts[@]} -gt 0 ]; then
+                unset 'parts[${#parts[@]}-1]'
+                parts=("${parts[@]}")  # 重新索引陣列
+            fi
+        elif [ "$part" != "." ] && [ -n "$part" ]; then
+            parts+=("$part")
+        fi
+    done
+    
+    # 重建路徑
+    local normalized=""
+    if [[ "$path" = /* ]]; then
+        normalized="/"
+    fi
+    
+    local first=1
+    for part in "${parts[@]}"; do
+        if [ $first -eq 1 ]; then
+            normalized="${normalized}${part}"
+            first=0
+        else
+            normalized="${normalized}/${part}"
+        fi
+    done
+    
+    # 如果結果為空且原始路徑以 / 開頭，返回 /
+    if [ -z "$normalized" ] && [[ "$path" = /* ]]; then
+        normalized="/"
+    fi
+    
+    echo "$normalized"
+}
+
 # 檢查路徑是否為受保護的目錄
 # Check if path is a protected directory
 is_protected() {
@@ -71,8 +121,21 @@ is_protected() {
     
     # 取得絕對路徑
     # Get absolute path
-    if [ -e "$path" ]; then
-        real_path=$(readlink -f "$path" 2>/dev/null || realpath "$path" 2>/dev/null || echo "$path")
+    if [ -e "$path" ] || [ -L "$path" ]; then
+        # 如果檔案存在，使用 readlink/realpath
+        real_path=$(readlink -f "$path" 2>/dev/null)
+        if [ -z "$real_path" ]; then
+            real_path=$(realpath "$path" 2>/dev/null)
+        fi
+        if [ -z "$real_path" ]; then
+            # 兩者都失敗，手動解析
+            if [[ "$path" = /* ]]; then
+                real_path="$path"
+            else
+                real_path="$(pwd)/$path"
+            fi
+            real_path=$(normalize_path "$real_path")
+        fi
     else
         # 如果路徑不存在，嘗試解析相對路徑
         # If path doesn't exist, try to resolve relative path
@@ -81,9 +144,7 @@ is_protected() {
         else
             real_path="$(pwd)/$path"
         fi
-        # 正規化路徑 (移除 ./ 和 ../)
-        # Normalize path (remove ./ and ../)
-        real_path=$(echo "$real_path" | sed 's#/\+#/#g' | sed 's#/\./#/#g')
+        real_path=$(normalize_path "$real_path")
     fi
     
     # 移除結尾的斜線以便比較
@@ -188,9 +249,24 @@ move_to_trash() {
     # Get absolute path
     local abs_path
     if [ -e "$source" ] || [ -L "$source" ]; then
-        abs_path=$(readlink -f "$source" 2>/dev/null || realpath "$source" 2>/dev/null || echo "$(cd "$(dirname "$source")" 2>/dev/null && pwd)/$(basename "$source")")
+        abs_path=$(readlink -f "$source" 2>/dev/null)
+        if [ -z "$abs_path" ]; then
+            abs_path=$(realpath "$source" 2>/dev/null)
+        fi
+        if [ -z "$abs_path" ]; then
+            # 手動計算絕對路徑
+            if [[ "$source" = /* ]]; then
+                abs_path="$source"
+            else
+                abs_path="$(cd "$(dirname "$source")" 2>/dev/null && pwd)/$(basename "$source")"
+            fi
+        fi
     else
-        abs_path="$(pwd)/$source"
+        if [[ "$source" = /* ]]; then
+            abs_path="$source"
+        else
+            abs_path="$(pwd)/$source"
+        fi
     fi
     
     # 建立垃圾桶目錄結構
@@ -282,24 +358,12 @@ main() {
                 verbose=1
                 shift
                 ;;
-            -rf|-fr|-Rf|-fR|-rif|-rfi|-fri|-fir|-irf|-ifr)
-                # 組合參數處理
-                # Handle combined parameters
-                [[ "$1" =~ r|R ]] && recursive=1
-                [[ "$1" =~ f ]] && force_mode=1
-                [[ "$1" =~ i ]] && interactive=1
-                [[ "$1" =~ v ]] && verbose=1
-                if [[ "$1" =~ f ]] && [[ "$1" =~ i ]]; then
-                    # 當同時有 -f 和 -i 時，最後出現的優先
-                    # When both -f and -i, last one wins
-                    if [[ "$1" =~ f.*i ]]; then
-                        force_mode=0
-                        interactive=1
-                    else
-                        force_mode=1
-                        interactive=0
-                    fi
-                fi
+            -rf|-fr|-Rf|-fR|-RF|-Fr|-rF|-RF)
+                # 組合參數處理 - 只處理常見的 rf 組合
+                # Handle combined parameters - only common rf combinations
+                recursive=1
+                force_mode=1
+                interactive=0
                 shift
                 ;;
             -*)
@@ -308,11 +372,41 @@ main() {
                 local arg="$1"
                 shift
                 local i
+                local has_f=0
+                local has_i=0
+                local f_pos=-1
+                local i_pos=-1
+                
+                # 第一次掃描：找出 f 和 i 的位置
+                for ((i=1; i<${#arg}; i++)); do
+                    case "${arg:$i:1}" in
+                        f) has_f=1; f_pos=$i ;;
+                        i) has_i=1; i_pos=$i ;;
+                    esac
+                done
+                
+                # 第二次掃描：處理所有選項
                 for ((i=1; i<${#arg}; i++)); do
                     case "${arg:$i:1}" in
                         r|R) recursive=1 ;;
-                        f) force_mode=1; interactive=0 ;;
-                        i) interactive=1; force_mode=0 ;;
+                        f) 
+                            # 如果 i 也存在且在 f 之後，則 i 優先
+                            if [ $has_i -eq 1 ] && [ $i_pos -gt $f_pos ]; then
+                                : # 什麼都不做，讓 i 處理
+                            else
+                                force_mode=1
+                                interactive=0
+                            fi
+                            ;;
+                        i) 
+                            # 如果 f 也存在且在 i 之後，則 f 優先
+                            if [ $has_f -eq 1 ] && [ $f_pos -gt $i_pos ]; then
+                                : # 什麼都不做，讓 f 處理
+                            else
+                                interactive=1
+                                force_mode=0
+                            fi
+                            ;;
                         I) interactive_once=1 ;;
                         v) verbose=1 ;;
                         *)
