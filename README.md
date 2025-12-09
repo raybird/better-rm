@@ -17,14 +17,58 @@
 
 ## 安裝方式
 
-### 方法一：使用別名（推薦）
+### 方法一：一鍵安裝（推薦）
+
+如果專案已上傳到 GitHub，可以使用以下命令一鍵安裝：
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/raybird/better-rm/main/install.sh)"
+```
+
+**或者**，如果已經下載了專案到本地，可以直接執行：
+
+```bash
+cd better-rm
+bash install.sh
+```
+
+**或者**，從 GitHub 下載安裝腳本後，指定倉庫位置：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/raybird/better-rm/main/install.sh | bash -s -- raybird/better-rm
+```
+
+安裝腳本會自動：
+
+* 下載或複製 `better-rm` 腳本
+* 安裝到 `~/.local/bin/` 目錄
+* 設定執行權限
+* 更新 PATH 環境變數
+* 驗證安裝結果
+
+安裝完成後，建議設定別名以替代 `rm` 命令：
+
+```bash
+# 在 ~/.bashrc 或 ~/.zshrc 中加入
+alias rm='better-rm'
+```
+
+然後重新載入設定檔：
+
+```bash
+source ~/.bashrc  # 或 source ~/.zshrc
+```
+
+**提示**：如果需要使用系統原生的 `rm` 命令，可以使用完整路徑 `/bin/rm` 或用反斜線 `\rm`。
+
+### 方法二：使用別名
 
 這種方法最安全，不會覆蓋系統原生的 `rm` 命令，需要時仍可使用 `/bin/rm` 存取原始命令。
 
 1. 複製專案到本地目錄：
 
 ```bash
-git clone https://github.com/doggy8088/better-rm.git ~/better-rm
+git clone https://github.com/raybird/better-rm.git ~/better-rm
 ```
 
 2. 設定別名，在 `~/.bashrc` 或 `~/.zshrc` 中加入以下內容：
@@ -50,13 +94,13 @@ rm --version
 
 **提示**：如果需要使用系統原生的 `rm` 命令，可以使用完整路徑 `/bin/rm` 或用反斜線 `\rm`。
 
-### 方法二：複製到 PATH 目錄
+### 方法三：複製到 PATH 目錄
 
 如果你想讓 `better-rm` 可以直接執行（不只是透過 `rm` 別名），可以將它複製到 PATH 目錄：
 
 ```bash
 # 下載專案
-git clone https://github.com/doggy8088/better-rm.git
+git clone https://github.com/raybird/better-rm.git
 cd better-rm
 
 # 複製到 /usr/local/bin（需要 sudo 權限）
