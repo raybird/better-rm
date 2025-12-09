@@ -108,6 +108,38 @@ update_path() {
     warn_msg "請執行 'source $config_file' 或重新開啟終端機以套用變更"
 }
 
+# 檢查是否已設定 rm 別名
+is_alias_set() {
+    local config_file=$(get_shell_config)
+    if [ -f "$config_file" ]; then
+        # 檢查是否已有 better-rm 相關的別名設定
+        if grep -qE "^[[:space:]]*alias[[:space:]]+rm=['\"]better-rm['\"]" "$config_file" 2>/dev/null; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# 設定 rm 別名
+setup_alias() {
+    local config_file=$(get_shell_config)
+    local alias_line="alias rm='better-rm'"
+    
+    if is_alias_set; then
+        info_msg "rm 別名已設定"
+        return 0
+    fi
+    
+    info_msg "正在設定 rm 別名..."
+    echo "" >> "$config_file"
+    echo "# better-rm: 使用 better-rm 替代系統 rm 命令" >> "$config_file"
+    echo "# 如需使用系統原生的 rm，請使用 /bin/rm 或 \\rm" >> "$config_file"
+    echo "$alias_line" >> "$config_file"
+    success_msg "已設定 rm 別名"
+    warn_msg "請執行 'source $config_file' 或重新開啟終端機以套用變更"
+    return 0
+}
+
 # 驗證倉庫路徑格式（防止路徑注入）
 validate_repo_path() {
     local repo_path="$1"
@@ -269,6 +301,20 @@ main() {
         info_msg "PATH 已包含 $INSTALL_DIR"
     fi
     
+    # 詢問是否要設定 rm 別名
+    echo ""
+    if is_alias_set; then
+        info_msg "rm 別名已設定，無需重複設定"
+    else
+        echo -n "是否要設定 rm 別名以替代系統 rm 命令？(y/N): "
+        read -r response
+        if [[ "$response" =~ ^[yY] ]]; then
+            setup_alias
+        else
+            info_msg "跳過別名設定，您可以稍後手動設定"
+        fi
+    fi
+    
     # 驗證安裝
     echo ""
     info_msg "正在驗證安裝..."
@@ -288,18 +334,29 @@ main() {
         echo ""
         info_msg "下一步 (Next steps):"
         echo ""
-        echo "1. 重新載入 shell 設定檔 (Reload shell config):"
         local config_file=$(get_shell_config)
-        echo "   source $config_file"
-        echo ""
-        echo "2. 設定別名以替代 rm 命令 (Set alias to replace rm):"
-        echo "   在 $config_file 中加入："
-        echo "   alias rm='better-rm'"
-        echo ""
-        echo "3. 驗證安裝 (Verify installation):"
-        echo "   better-rm --version"
-        echo ""
-        warn_msg "注意：設定別名後，仍可使用 /bin/rm 或 \\rm 呼叫系統原生的 rm 命令"
+        
+        if is_alias_set; then
+            echo "1. 重新載入 shell 設定檔以套用變更 (Reload shell config):"
+            echo "   source $config_file"
+            echo ""
+            echo "2. 驗證安裝 (Verify installation):"
+            echo "   rm --version  # 應該顯示 better-rm 版本"
+            echo ""
+            warn_msg "注意：如需使用系統原生的 rm，請使用 /bin/rm 或 \\rm"
+        else
+            echo "1. 重新載入 shell 設定檔 (Reload shell config):"
+            echo "   source $config_file"
+            echo ""
+            echo "2. 設定別名以替代 rm 命令 (Set alias to replace rm):"
+            echo "   在 $config_file 中加入："
+            echo "   alias rm='better-rm'"
+            echo ""
+            echo "3. 驗證安裝 (Verify installation):"
+            echo "   better-rm --version"
+            echo ""
+            warn_msg "注意：設定別名後，仍可使用 /bin/rm 或 \\rm 呼叫系統原生的 rm 命令"
+        fi
         echo ""
     else
         error_msg "安裝驗證失敗"
